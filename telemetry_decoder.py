@@ -2,6 +2,27 @@ import serial
 import serial.tools.list_ports
 import struct
 import threading
+import requests
+import time
+
+# ---------- Discord webhook ----------
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1481537255641317418/FEl1fF-hrQ414kObQ02TKo-PMOJdpo0r6cVL4khxewVbha42pch0M-kqKVjSTachjwzq"
+DISCORD_RATE_LIMIT = 1  # seconds between messages
+_last_discord_send = 0
+_discord_lock = threading.Lock()
+
+def send_to_discord(message):
+    """Send a message to the Discord webhook (rate limited to 1 per 15 seconds)."""
+    global _last_discord_send
+    with _discord_lock:
+        now = time.time()
+        if now - _last_discord_send < DISCORD_RATE_LIMIT:
+            return  # Skip if rate limited
+        _last_discord_send = now
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=5)
+    except Exception:
+        pass  # Silently ignore webhook errors
 
 # ---------- Protocol constants ----------
 RX_PACKET_SIZE = 120
@@ -18,19 +39,24 @@ MSG_CLS_ASCENT_TELEMETRY = 21
 
 def decode_goober_header(data):
     dev_id, dev_mode, seq_id, msg_cls, payload_length = struct.unpack_from(GOOBER_HEADER_FORMAT, data)
-    print(f"  Header: dev_id={dev_id}, dev_mode={dev_mode}, seq_id={seq_id}, msg_cls={msg_cls}, payload_length={payload_length}")
-    return dev_id, dev_mode, seq_id, msg_cls, payload_length
+    msg = f"  Header: dev_id={dev_id}, dev_mode={dev_mode}, seq_id={seq_id}, msg_cls={msg_cls}, payload_length={payload_length}"
+    print(msg)
+    return dev_id, dev_mode, seq_id, msg_cls, payload_length, msg
 
 
 def decode_ascent_telemetry(data):
     """Decode ascent_telemetry_t from payload bytes."""
     timestamp, lat, lon, alt_agl, vert_vel, y_acc, gyr_y, pyro_state, sats, flight_state, bat_voltage = struct.unpack_from(ASCENT_TELEMETRY_FORMAT, data)
-    print(f"  Telemetry:")
-    print(f"    timestamp={timestamp}, lat={lat}, lon={lon}")
-    print(f"    altitude_agl={alt_agl:.2f}m, vertical_velocity={vert_vel:.2f}m/s")
-    print(f"    y_acc={y_acc:.3f}m/s², gyr_y={gyr_y:.3f}deg/s")
-    print(f"    pyro_state={pyro_state}, sats={sats}, flight_state={flight_state}")
-    print(f"    battery_voltage={bat_voltage / 2500}V")
+    msgs = [
+        f"  Telemetry:",
+        f"    timestamp={timestamp}, lat={lat}, lon={lon}",
+        f"    altitude_agl={alt_agl:.2f}m, vertical_velocity={vert_vel:.2f}m/s",
+        f"    y_acc={y_acc:.3f}m/s², gyr_y={gyr_y:.3f}deg/s",
+        f"    pyro_state={pyro_state}, sats={sats}, flight_state={flight_state}",
+        f"    battery_voltage={bat_voltage / 2500}V"
+    ]
+    for msg in msgs:
+        print(msg)
 
     # CSV logging
     import os
@@ -52,6 +78,8 @@ def decode_ascent_telemetry(data):
             timestamp, lat, lon, alt_agl, vert_vel, y_acc, gyr_y,
             pyro_state, sats, flight_state, bat_voltage / 2500
         ])
+    
+    return "\n".join(msgs)
 
 
 def sync_to_delimiter(ser):
@@ -105,6 +133,7 @@ if __name__ == "__main__":
         """Receive from serial. In debug mode, print raw data. In normal mode, decode packets."""
         if debug_mode:
             print("Debug mode — printing raw serial data\n")
+            line_buffer = ""
             while True:
                 data = ser.read(ser.in_waiting or 1)
                 if data:
@@ -112,23 +141,51 @@ if __name__ == "__main__":
                         text = data.decode("utf-8", errors="replace")
                     except Exception:
                         text = data.hex()
-                    print(text, end="", flush=True)
+                    # Buffer and filter lines starting with +EVT:RXP2P:
+                    line_buffer += text
+                    while '\n' in line_buffer:
+                        line, line_buffer = line_buffer.split('\n', 1)
+                        if not line.startswith('+EVT:RXP2P:'):
+                            print(line)
+                    # Print partial line if it doesn't start with the ignored prefix
+                    if line_buffer and not line_buffer.startswith('+EVT:RXP2P:'):
+                        print(line_buffer, end="", flush=True)
+                        line_buffer = ""
         else:
-            sync_to_delimiter(ser)
-
+            print("Normal mode — parsing +EVT:RXP2P packets\n")
+            line_buffer = ""
             while True:
-                data = ser.read(RX_PACKET_SIZE)
-
-                if len(data) == RX_PACKET_SIZE:
-                    _, _, _, msg_cls, _ = decode_goober_header(data)
-
-                    payload = data[GOOBER_HEADER_SIZE:]
-                    if msg_cls == MSG_CLS_ASCENT_TELEMETRY:
-                        decode_ascent_telemetry(payload)
-
-                    delimiter = ser.read(len(DELIMITER))
-                    if delimiter != DELIMITER:
-                        sync_to_delimiter(ser)
+                data = ser.read(ser.in_waiting or 1)
+                if data:
+                    try:
+                        text = data.decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    line_buffer += text
+                    while '\n' in line_buffer:
+                        line, line_buffer = line_buffer.split('\n', 1)
+                        if line.startswith('+EVT:RXP2P:'):
+                            # Format: +EVT:RXP2P:<rssi>:<snr>:<hex_payload>
+                            parts = line.split(':')
+                            if len(parts) >= 5:
+                                rssi = parts[2]
+                                hex_payload = parts[4]
+                                rssi_msg = f"RSSI: {rssi} dBm"
+                                print(rssi_msg)
+                                discord_parts = [rssi_msg]
+                                try:
+                                    packet_data = bytes.fromhex(hex_payload)
+                                    if len(packet_data) >= GOOBER_HEADER_SIZE:
+                                        _, _, _, msg_cls, _, header_msg = decode_goober_header(packet_data)
+                                        discord_parts.append(header_msg)
+                                        payload = packet_data[GOOBER_HEADER_SIZE:]
+                                        if msg_cls == MSG_CLS_ASCENT_TELEMETRY:
+                                            telemetry_msg = decode_ascent_telemetry(payload)
+                                            discord_parts.append(telemetry_msg)
+                                except ValueError as e:
+                                    print(f"  Error parsing hex: {e}")
+                                # Send full message to Discord
+                                # send_to_discord("\n".join(discord_parts))
 
     rx = threading.Thread(target=receive_thread, daemon=True)
     rx.start()
