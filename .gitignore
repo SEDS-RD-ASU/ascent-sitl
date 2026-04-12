@@ -90,3 +90,6 @@ venv.bak/
 .vscode/
 *.swp
 *.swo
+
+# Dump files
+dump/

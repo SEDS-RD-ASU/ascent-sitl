@@ -150,7 +150,7 @@ if __name__ == "__main__":
                 time.sleep(sleep_time)
 
             packet = pack_row(idx, df.iloc[idx])
-            print(f"Sending sample t={df.iloc[idx]['timestamp_s']:.4f}s", end="\r")
+            print(f"\033]0;Sending sample t={df.iloc[idx]['timestamp_s']:.4f}s\007", end="", flush=True)
             ser.write(packet + DELIMITER)
             # print(f"accy: {df.iloc[idx]['accy']:.4f}")
 
@@ -161,7 +161,7 @@ if __name__ == "__main__":
                     rx_text = rx_data.decode("utf-8", errors="replace")
                 except Exception:
                     rx_text = rx_data.hex()
-                print(f"\nReceived: {rx_text}")
+                print(f"Received: {rx_text}", end="", flush=True)
         print(f"\nDone. Sent {total} packets at {SEND_HZ} Hz.")
     except KeyboardInterrupt:
         print("\nExiting...")
