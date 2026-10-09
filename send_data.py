@@ -86,12 +86,14 @@ def select_serial_port():
 
 
 def select_flight_data():
-    sim_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sim_flight_data")
+    sim_folder = os.path.join(os.path.dirname(
+        os.path.abspath(__file__)), "sim_flight_data")
     if not os.path.isdir(sim_folder):
         print(f"Error: Directory not found: {sim_folder}")
         exit(1)
-    
-    csv_files = sorted([f for f in os.listdir(sim_folder) if f.lower().endswith(".csv")])
+
+    csv_files = sorted([f for f in os.listdir(sim_folder)
+                       if f.lower().endswith(".csv")])
     if not csv_files:
         print(f"No CSV files found in {sim_folder}")
         exit(1)
@@ -100,10 +102,10 @@ def select_flight_data():
     for i, file_name in enumerate(csv_files):
         csv_path = os.path.join(sim_folder, file_name)
         df = pd.read_csv(csv_path)
-        
+
         max_alt = df["baro_alt"].max() if "baro_alt" in df.columns else 0.0
         max_haccy = df["haccy"].max() if "haccy" in df.columns else 0.0
-        
+
         max_vel = 0.0
         if "baro_alt" in df.columns and "timestamp_s" in df.columns:
             dy = df["baro_alt"].diff()
@@ -111,8 +113,9 @@ def select_flight_data():
             valid = dt > 0
             if valid.any():
                 max_vel = (dy[valid] / dt[valid]).max()
-                
-        print(f"  [{i}] {file_name} (Max Alt: {max_alt:.2f}, Max Vert Vel: {max_vel:.2f}, Max haccy: {max_haccy:.2f})")
+
+        print(
+            f"  [{i}] {file_name} (Max Alt: {max_alt:.2f}, Max Vert Vel: {max_vel:.2f}, Max haccy: {max_haccy:.2f})")
 
     while True:
         try:
@@ -125,7 +128,8 @@ def select_flight_data():
         except KeyboardInterrupt:
             print("\nExiting...")
             exit(0)
-        print(f"Please enter a valid number between 0 and {len(csv_files) - 1}")
+        print(
+            f"Please enter a valid number between 0 and {len(csv_files) - 1}")
 
 
 if __name__ == "__main__":
@@ -150,7 +154,8 @@ if __name__ == "__main__":
                 time.sleep(sleep_time)
 
             packet = pack_row(idx, df.iloc[idx])
-            print(f"\033]0;Sending sample t={df.iloc[idx]['timestamp_s']:.4f}s\007", end="", flush=True)
+            print(
+                f"\rSending sample {idx + 1}/{total} (t={df.iloc[idx]['timestamp_s']:.4f}s)", end="", flush=True)
             ser.write(packet + DELIMITER)
             # print(f"accy: {df.iloc[idx]['accy']:.4f}")
 
