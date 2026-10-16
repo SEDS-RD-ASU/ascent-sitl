@@ -28,15 +28,13 @@ def select_serial_port():
             pass
         print(f"Enter a number between 0 and {len(ports) - 1}")
 
-
-def hard_reset(ser, pulse=0.1, settle=0.1):
+def hard_reset(ser, pulse=0.1):
     """Pulse RTS to reset the board (assumes RTS is wired to NRST/EN via the adapter)."""
-    ser.rts = True          # pyserial: True drives the RTS pin LOW (active-low)
+    ser.dtr = False   # GPIO0 high -> normal boot, not download mode
+    ser.rts = True    # EN low -> chip held in reset
     time.sleep(pulse)
-    ser.rts = False         # release -> pin goes HIGH, board starts running
-    time.sleep(settle)
-    ser.reset_input_buffer()  # drop any stale bytes from before the reset
-
+    ser.rts = False   # EN high -> chip runs
+    ser.reset_input_buffer()
 
 def main():
     port = select_serial_port()
@@ -75,7 +73,8 @@ def main():
         while True:
             user_input = input()
             if user_input == "/reset":
-                hard_reset(ser)
+               print("[Hard reset triggered]")
+               hard_reset(ser)
             elif user_input:
                 try:
                     ser.write((user_input + "\n").encode("utf-8"))
