@@ -34,12 +34,6 @@ def main():
     baud = 115200
     ser = serial.Serial(port, baud, timeout=0.1)
 
-    # Prepare dump file
-    os.makedirs("dump", exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    dump_path = os.path.join("dump", f"uart_dump_{timestamp}.txt")
-    print(f"Dumping serial data to {dump_path}\nPress Ctrl+C to exit.")
-
     stop_event = threading.Event()
 
     def read_serial():
