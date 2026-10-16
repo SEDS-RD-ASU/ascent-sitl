@@ -4,11 +4,11 @@ import os
 import sys
 import threading
 import datetime
-
-# Use the same port selector as in send_data.py
+import time
 
 
 def select_serial_port():
+    """Use the same port selector as in send_data.py"""
     ports = list(serial.tools.list_ports.comports())
     if not ports:
         print("No serial devices found.")
@@ -27,6 +27,15 @@ def select_serial_port():
         except (ValueError, EOFError):
             pass
         print(f"Enter a number between 0 and {len(ports) - 1}")
+
+
+def hard_reset(ser, pulse=0.1, settle=0.1):
+    """Pulse RTS to reset the board (assumes RTS is wired to NRST/EN via the adapter)."""
+    ser.rts = True          # pyserial: True drives the RTS pin LOW (active-low)
+    time.sleep(pulse)
+    ser.rts = False         # release -> pin goes HIGH, board starts running
+    time.sleep(settle)
+    ser.reset_input_buffer()  # drop any stale bytes from before the reset
 
 
 def main():
@@ -65,7 +74,9 @@ def main():
     try:
         while True:
             user_input = input()
-            if user_input:
+            if user_input == "/reset":
+                hard_reset(ser)
+            elif user_input:
                 try:
                     ser.write((user_input + "\n").encode("utf-8"))
                 except Exception as e:
